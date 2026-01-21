@@ -15,11 +15,12 @@ This tool analyzes patrol progress and recommends activities that will benefit t
 
 ### Key Features
 
-1. **Progress Tracking**: Track each scout's completed requirements
-2. **Gap Analysis**: Identify requirements needed by multiple scouts
-3. **Activity Optimization**: Score activities by how many scouts they help
-4. **Cross-Rank Planning**: Consider next rank requirements to work ahead
-5. **Meeting/Campout Planning**: Generate optimized agendas
+1. **Image OCR**: Scan handbook photos to automatically extract progress
+2. **Progress Tracking**: Track each scout's completed requirements
+3. **Gap Analysis**: Identify requirements needed by multiple scouts
+4. **Activity Optimization**: Score activities by how many scouts they help
+5. **Cross-Rank Planning**: Consider next rank requirements to work ahead
+6. **Meeting/Campout Planning**: Generate optimized agendas
 
 ## Installation
 
@@ -52,7 +53,28 @@ npx tsx src/cli.ts plan-campout
 
 # Get activity recommendations
 npx tsx src/cli.ts recommend
+
+# SCAN HANDBOOK PHOTOS (OCR)
+# Scan a single handbook page photo
+npx tsx src/cli.ts scan ./path/to/handbook-page.jpg
+
+# Scan all images in a folder
+npx tsx src/cli.ts scan-folder ./scout-photos/
 ```
+
+### OCR Scanning
+
+The scanner uses Tesseract.js to read handbook photos and extract:
+- **Rank detection**: Automatically detects Second Class or First Class pages
+- **Requirement numbers**: Finds requirement numbers (1a, 2b, etc.)
+- **Completion status**: Detects checkmarks, dates, and signatures
+- **Leader initials**: Extracts signer information when visible
+
+**Tips for best OCR results:**
+- Take photos in good lighting
+- Keep the camera parallel to the page (avoid angles)
+- Ensure text is in focus
+- Include the full page with headers visible
 
 ### Example Output
 
@@ -108,6 +130,10 @@ src/
 │   └── index.ts                # Requirement utilities
 ├── activities/
 │   └── activities-database.ts  # Activity definitions
+├── ocr/
+│   ├── image-preprocessor.ts   # Image enhancement for OCR
+│   ├── handbook-scanner.ts     # Tesseract OCR scanning
+│   └── index.ts                # OCR module exports
 ├── scout-tracker.ts            # Scout progress tracking
 ├── optimizer.ts                # Advancement optimization
 ├── data/
@@ -193,7 +219,7 @@ const meetingPlan = optimizer.generateMeetingPlan('Eagle Patrol', 90);
 
 ## Future Enhancements
 
-- [ ] Image OCR to automatically extract progress from handbook photos
+- [x] Image OCR to automatically extract progress from handbook photos
 - [ ] Persistent storage (JSON/SQLite)
 - [ ] Web interface
 - [ ] Merit badge tracking
@@ -201,6 +227,7 @@ const meetingPlan = optimizer.generateMeetingPlan('Eagle Patrol', 90);
 - [ ] Star, Life, and Eagle requirements
 - [ ] Calendar integration for scheduling
 - [ ] Progress visualization charts
+- [ ] AI-powered OCR using vision models for better handwriting recognition
 
 ## License
 

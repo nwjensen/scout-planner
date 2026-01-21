@@ -4,6 +4,9 @@ import { ScoutTracker } from './scout-tracker.js';
 import { AdvancementOptimizer } from './optimizer.js';
 import { createSampleTroop } from './data/sample-troop.js';
 import { getRequirementById, getRequirementsForRank } from './requirements/index.js';
+import { HandbookScanner, ScanResult } from './ocr/handbook-scanner.js';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   Scout,
   PatrolAnalysis,
@@ -82,7 +85,13 @@ ${colors.bright}COMMANDS:${colors.reset}
   ${colors.cyan}plan-campout${colors.reset}         Generate an optimized campout plan
   ${colors.cyan}scout <name>${colors.reset}         Show progress for a specific scout
   ${colors.cyan}recommend${colors.reset}            Show top activity recommendations
+  ${colors.cyan}scan <image>${colors.reset}         Scan a handbook photo to extract progress (OCR)
+  ${colors.cyan}scan-folder <dir>${colors.reset}    Scan all images in a folder
   ${colors.cyan}help${colors.reset}                 Show this help message
+
+${colors.bright}OCR EXAMPLES:${colors.reset}
+  npx tsx src/cli.ts scan ./handbook-page1.jpg
+  npx tsx src/cli.ts scan-folder ./scout-photos/
 
 ${colors.bright}EXAMPLES:${colors.reset}
   npx tsx src/cli.ts analyze
@@ -307,7 +316,202 @@ ${colors.bright}EXAMPLES:${colors.reset}
     this.showRecommendations(recommendations);
   }
 
-  run(args: string[]): void {
+  /**
+   * Scan a single handbook image using OCR
+   */
+  async scanImage(imagePath: string): Promise<void> {
+    console.log(header('HANDBOOK OCR SCANNER'));
+
+    const resolvedPath = path.resolve(imagePath);
+    if (!fs.existsSync(resolvedPath)) {
+      console.error(`${colors.red}Error: File not found: ${resolvedPath}${colors.reset}`);
+      return;
+    }
+
+    console.log(`${colors.cyan}Scanning:${colors.reset} ${resolvedPath}\n`);
+
+    const scanner = new HandbookScanner();
+
+    try {
+      const result = await scanner.scanPage(resolvedPath);
+      this.displayScanResult(result);
+    } catch (error) {
+      console.error(`${colors.red}Error scanning image:${colors.reset}`, error);
+    }
+  }
+
+  /**
+   * Scan all images in a folder
+   */
+  async scanFolder(folderPath: string): Promise<void> {
+    console.log(header('SCANNING FOLDER FOR HANDBOOK IMAGES'));
+
+    const resolvedPath = path.resolve(folderPath);
+    if (!fs.existsSync(resolvedPath)) {
+      console.error(`${colors.red}Error: Folder not found: ${resolvedPath}${colors.reset}`);
+      return;
+    }
+
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.bmp'];
+    const files = fs.readdirSync(resolvedPath)
+      .filter(f => imageExtensions.includes(path.extname(f).toLowerCase()))
+      .map(f => path.join(resolvedPath, f));
+
+    if (files.length === 0) {
+      console.log(`${colors.yellow}No image files found in ${resolvedPath}${colors.reset}`);
+      return;
+    }
+
+    console.log(`Found ${files.length} image(s) to scan\n`);
+
+    const scanner = new HandbookScanner();
+    const allResults: ScanResult[] = [];
+
+    for (const file of files) {
+      console.log(`\n${colors.cyan}Scanning:${colors.reset} ${path.basename(file)}`);
+      try {
+        const result = await scanner.scanPage(file);
+        allResults.push(result);
+        this.displayScanResultSummary(result, path.basename(file));
+      } catch (error) {
+        console.error(`${colors.red}Error scanning ${file}:${colors.reset}`, error);
+      }
+    }
+
+    // Display combined summary
+    this.displayCombinedResults(allResults);
+  }
+
+  /**
+   * Display detailed scan result
+   */
+  private displayScanResult(result: ScanResult): void {
+    console.log(subHeader('\n📋 SCAN RESULTS'));
+
+    if (result.rank) {
+      console.log(`  Detected Rank: ${colors.cyan}${result.rank}${colors.reset}`);
+    } else {
+      console.log(`  Detected Rank: ${colors.yellow}Unknown${colors.reset}`);
+    }
+
+    console.log(`  OCR Confidence: ${formatPercent(result.confidence)}`);
+
+    if (result.warnings.length > 0) {
+      console.log(subHeader('\n⚠️  WARNINGS'));
+      for (const warn of result.warnings) {
+        console.log(`  ${colors.yellow}!${colors.reset} ${warn}`);
+      }
+    }
+
+    const completed = result.completedRequirements.filter(r => r.isCompleted);
+    const uncertain = result.completedRequirements.filter(r => !r.isCompleted);
+
+    if (completed.length > 0) {
+      console.log(subHeader('\n✅ COMPLETED REQUIREMENTS DETECTED'));
+      for (const req of completed) {
+        const dateStr = req.dateCompleted ? ` (${req.dateCompleted})` : '';
+        const signedStr = req.signedBy ? ` - ${req.signedBy}` : '';
+        console.log(
+          `  ${colors.green}✓${colors.reset} ${colors.cyan}${req.requirementId}${colors.reset}` +
+          `${dateStr}${signedStr}`
+        );
+        console.log(`    ${colors.dim}Confidence: ${(req.confidence * 100).toFixed(0)}%${colors.reset}`);
+      }
+    }
+
+    if (uncertain.length > 0) {
+      console.log(subHeader('\n❓ REQUIREMENTS FOUND (COMPLETION UNCERTAIN)'));
+      for (const req of uncertain) {
+        console.log(
+          `  ${colors.yellow}?${colors.reset} ${colors.cyan}${req.requirementId}${colors.reset}`
+        );
+        console.log(`    ${colors.dim}${req.rawText.slice(0, 60)}...${colors.reset}`);
+      }
+    }
+
+    // Summary
+    console.log(subHeader('\n📊 SUMMARY'));
+    console.log(`  Requirements found: ${result.completedRequirements.length}`);
+    console.log(`  Marked complete: ${colors.green}${completed.length}${colors.reset}`);
+    console.log(`  Uncertain: ${colors.yellow}${uncertain.length}${colors.reset}`);
+
+    // Show how to import
+    if (completed.length > 0) {
+      console.log(subHeader('\n💡 TO IMPORT THESE RESULTS'));
+      console.log(`  The following requirement IDs were detected as complete:`);
+      console.log(`  ${colors.cyan}${completed.map(r => r.requirementId).join(', ')}${colors.reset}`);
+    }
+  }
+
+  /**
+   * Display brief scan result summary
+   */
+  private displayScanResultSummary(result: ScanResult, filename: string): void {
+    const completed = result.completedRequirements.filter(r => r.isCompleted);
+    console.log(
+      `  ${result.rank || 'Unknown rank'} - ` +
+      `${colors.green}${completed.length} completed${colors.reset} - ` +
+      `Confidence: ${formatPercent(result.confidence)}`
+    );
+  }
+
+  /**
+   * Display combined results from multiple scans
+   */
+  private displayCombinedResults(results: ScanResult[]): void {
+    console.log(header('COMBINED SCAN RESULTS'));
+
+    const allCompleted = new Map<string, { dates: string[], signers: string[] }>();
+
+    for (const result of results) {
+      for (const req of result.completedRequirements) {
+        if (req.isCompleted) {
+          if (!allCompleted.has(req.requirementId)) {
+            allCompleted.set(req.requirementId, { dates: [], signers: [] });
+          }
+          const entry = allCompleted.get(req.requirementId)!;
+          if (req.dateCompleted) entry.dates.push(req.dateCompleted);
+          if (req.signedBy) entry.signers.push(req.signedBy);
+        }
+      }
+    }
+
+    console.log(subHeader('\n✅ ALL COMPLETED REQUIREMENTS'));
+
+    // Group by rank prefix
+    const secondClass = Array.from(allCompleted.entries())
+      .filter(([id]) => id.startsWith('2C-'))
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    const firstClass = Array.from(allCompleted.entries())
+      .filter(([id]) => id.startsWith('1C-'))
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    if (secondClass.length > 0) {
+      console.log(`\n  ${colors.bright}Second Class:${colors.reset}`);
+      for (const [id, data] of secondClass) {
+        const date = data.dates[0] || '';
+        const signer = data.signers[0] || '';
+        console.log(`    ${colors.green}✓${colors.reset} ${id} ${date} ${signer}`);
+      }
+    }
+
+    if (firstClass.length > 0) {
+      console.log(`\n  ${colors.bright}First Class:${colors.reset}`);
+      for (const [id, data] of firstClass) {
+        const date = data.dates[0] || '';
+        const signer = data.signers[0] || '';
+        console.log(`    ${colors.green}✓${colors.reset} ${id} ${date} ${signer}`);
+      }
+    }
+
+    console.log(subHeader('\n📊 TOTALS'));
+    console.log(`  Second Class: ${colors.green}${secondClass.length}${colors.reset} requirements`);
+    console.log(`  First Class: ${colors.green}${firstClass.length}${colors.reset} requirements`);
+    console.log(`  Total: ${colors.green}${allCompleted.size}${colors.reset} unique requirements`);
+  }
+
+  async run(args: string[]): Promise<void> {
     const command = args[0] || 'help';
     const arg1 = args[1];
     const arg2 = args[2];
@@ -331,6 +535,22 @@ ${colors.bright}EXAMPLES:${colors.reset}
       case 'recommend':
         this.recommend(arg1 || 'Eagle Patrol', (arg2 as 'meeting' | 'campout') || 'meeting');
         break;
+      case 'scan':
+        if (!arg1) {
+          console.error('Usage: scan <image-path>');
+          console.error('Example: scan ./handbook-page.jpg');
+          return;
+        }
+        await this.scanImage(arg1);
+        break;
+      case 'scan-folder':
+        if (!arg1) {
+          console.error('Usage: scan-folder <folder-path>');
+          console.error('Example: scan-folder ./scout-photos/');
+          return;
+        }
+        await this.scanFolder(arg1);
+        break;
       case 'help':
       default:
         this.showHelp();
@@ -341,4 +561,4 @@ ${colors.bright}EXAMPLES:${colors.reset}
 
 // Run CLI
 const cli = new ScoutPlannerCLI();
-cli.run(process.argv.slice(2));
+cli.run(process.argv.slice(2)).catch(console.error);
