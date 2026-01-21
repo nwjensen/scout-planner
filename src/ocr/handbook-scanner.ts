@@ -339,7 +339,7 @@ export class HandbookScanner {
 
   /**
    * Detect if a requirement line shows completion
-   * Rule: If there's ANY writing in the signature/date cell, assume it's complete
+   * Rule: If there's text at the end of the line (initials, date, etc.), it's complete
    */
   private detectCompletion(line: string, allLines: string[], lineIndex: number): boolean {
     // Check for explicit checkmarks
@@ -348,15 +348,16 @@ export class HandbookScanner {
       return true;
     }
 
-    // Check for date pattern (often indicates completion)
+    // Check for date pattern (indicates completion)
     const datePattern = /\d{1,2}[\/\-]\d{1,2}/;
     if (datePattern.test(line)) {
       return true;
     }
 
-    // Check for initials pattern at end of line (2-4 caps)
-    const initialsAtEnd = /[A-Z]{2,4}\s*$/;
-    if (initialsAtEnd.test(line)) {
+    // Check for text at end of line - initials like JG, DAT, etc.
+    // This is the main trigger: any text in the signature column means it's complete
+    const textAtEnd = /[A-Za-z]{2,}\s*$/;
+    if (textAtEnd.test(line)) {
       return true;
     }
 
@@ -366,34 +367,6 @@ export class HandbookScanner {
       if (checkmarks.some(cm => prevLine.includes(cm)) ||
           /^[vVxX✓✔]\s*$/.test(prevLine.trim())) {
         return true;
-      }
-    }
-
-    // NEW RULE: Check for ANY writing/text that looks like handwriting near the line
-    // This catches cases where penmanship is poor but there's clearly something written
-    // Look for patterns that suggest handwritten content (mixed case, short strings, etc.)
-    const handwritingIndicators = [
-      /[A-Z][a-z]+\s*$/,           // Capitalized word at end (like a name)
-      /[A-Z]\.[A-Z]\./,            // Initials like J.G.
-      /[a-z]{2,4}\s*$/,            // Short lowercase word at end
-      /\d{1,2}\s*$/,               // Single or double digit at end (partial date)
-      /[A-Za-z]{1,3}\d/,           // Mix of letters and numbers (like "JG1" or "1/25")
-      /[\/\-]\d/,                  // Slash or dash followed by number (partial date)
-    ];
-
-    if (handwritingIndicators.some(pattern => pattern.test(line))) {
-      return true;
-    }
-
-    // Check next few lines for signature content (sometimes OCR puts it on separate line)
-    for (let offset = 1; offset <= 2 && lineIndex + offset < allLines.length; offset++) {
-      const nextLine = allLines[lineIndex + offset].trim();
-      // Short line with alphanumeric content is likely a signature/date
-      if (nextLine.length > 0 && nextLine.length < 20 && /[A-Za-z0-9]/.test(nextLine)) {
-        // But not if it's another requirement number
-        if (!/^\d+[a-g]?[.\s]/i.test(nextLine) && !this.isCategoryHeader(nextLine)) {
-          return true;
-        }
       }
     }
 
