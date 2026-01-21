@@ -339,35 +339,22 @@ export class HandbookScanner {
 
   /**
    * Detect if a requirement line shows completion
-   * Rule: If there's text at the end of the line (initials, date, etc.), it's complete
+   * Rule: ONLY initials/text at end of line indicates completion (leader signed off)
+   * Checkmarks mean nothing - only a leader's initials in the signature box counts
    */
   private detectCompletion(line: string, allLines: string[], lineIndex: number): boolean {
-    // Check for explicit checkmarks
-    const checkmarks = ['✓', '✔', '☑', '√', '[x]', '[X]', '☒'];
-    if (checkmarks.some(cm => line.includes(cm))) {
+    // ONLY check for initials/text at end of line
+    // This represents a leader signing off on the requirement
+    const initialsAtEnd = /[A-Za-z]{2,}\s*$/;
+    if (initialsAtEnd.test(line)) {
       return true;
     }
 
-    // Check for date pattern (indicates completion)
-    const datePattern = /\d{1,2}[\/\-]\d{1,2}/;
-    if (datePattern.test(line)) {
+    // Also check if there's a date WITH initials (date alone doesn't count, but date+initials does)
+    // Pattern: date followed by initials, e.g., "1/25/25 JG" or "1/25 DAT"
+    const dateWithInitials = /\d{1,2}[\/\-]\d{1,2}[\/\-]?\d{0,4}\s+[A-Za-z]{2,}/;
+    if (dateWithInitials.test(line)) {
       return true;
-    }
-
-    // Check for text at end of line - initials like JG, DAT, etc.
-    // This is the main trigger: any text in the signature column means it's complete
-    const textAtEnd = /[A-Za-z]{2,}\s*$/;
-    if (textAtEnd.test(line)) {
-      return true;
-    }
-
-    // Look at the previous line for a checkmark (in checkbox column)
-    if (lineIndex > 0) {
-      const prevLine = allLines[lineIndex - 1];
-      if (checkmarks.some(cm => prevLine.includes(cm)) ||
-          /^[vVxX✓✔]\s*$/.test(prevLine.trim())) {
-        return true;
-      }
     }
 
     return false;
